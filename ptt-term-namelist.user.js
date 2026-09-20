@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.2.0
+// @version      1.3.0
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -296,6 +296,70 @@
     return clickCtx;
   }
 
+  // ---------- on-screen highlight ----------
+  // Marks every occurrence of a listed ID directly on the terminal grid with a
+  // colored underline, positioned the same way ptt-term positions its own
+  // invisible hyperlink overlays (col*chw, row*chh inside #mainContainer).
+  // pointer-events:none so it never steals clicks meant for the canvas.
+  let highlightEls = [];
+  function clearHighlights() {
+    highlightEls.forEach((el) => el.remove());
+    highlightEls = [];
+  }
+
+  function renderHighlights(app) {
+    const list = loadList();
+    const ids = Object.keys(list);
+    const mainContainer = document.querySelector('#mainContainer');
+    if (!mainContainer || ids.length === 0) {
+      clearHighlights();
+      return;
+    }
+    const buf = app.buf;
+    const view = app.view;
+    const chw = view.chw * (view.scaleX || 1);
+    const chh = view.chh * (view.scaleY || 1);
+    const boxes = [];
+    for (let row = 0; row < buf.rows; row++) {
+      const rowStr = buildRowString(app, row);
+      if (!rowStr.trim()) continue;
+      ID_RE.lastIndex = 0;
+      let m;
+      while ((m = ID_RE.exec(rowStr))) {
+        const entry = list[m[0]];
+        if (entry) {
+          const meta = TYPE_META[entry.type] || TYPE_META.note;
+          boxes.push({ row, col: m.index, len: m[0].length, color: meta.color });
+        }
+      }
+    }
+    while (highlightEls.length < boxes.length) {
+      const el = document.createElement('div');
+      el.className = 'pnl-highlight';
+      mainContainer.appendChild(el);
+      highlightEls.push(el);
+    }
+    while (highlightEls.length > boxes.length) {
+      highlightEls.pop().remove();
+    }
+    boxes.forEach((b, i) => {
+      const el = highlightEls[i];
+      el.style.left = b.col * chw + 'px';
+      el.style.top = b.row * chh + 'px';
+      el.style.width = b.len * chw + 'px';
+      el.style.height = chh + 'px';
+      el.style.borderBottom = `2px solid ${b.color}`;
+      el.style.boxShadow = `inset 0 0 0 1px ${b.color}88`;
+    });
+  }
+
+  function startHighlightLoop() {
+    setInterval(() => {
+      const app = pageWindow.app;
+      if (app && app.buf && app.view) renderHighlights(app);
+    }, 350);
+  }
+
   // ---------- UI: modal dialog ----------
   let stylesInjected = false;
   function injectStyles() {
@@ -334,6 +398,7 @@
       .pnl-toggle-row { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 10px; }
       #pttNameListFab { position: fixed; right: 14px; bottom: 14px; z-index: 999998; background: #2d7ff9cc; color: #fff; border-radius: 20px; padding: 8px 14px; font-size: 13px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.4); font-family: -apple-system, "Microsoft JhengHei", sans-serif; user-select: none; }
       #pttNameListFab:hover { background: #2d7ff9; }
+      .pnl-highlight { position: absolute; pointer-events: none; box-sizing: border-box; z-index: 3; }
     `;
     document.head.appendChild(style);
   }
@@ -592,6 +657,7 @@
   waitForApp((app) => {
     registerMenuItems(app);
     addFab();
+    startHighlightLoop();
     if (typeof GM_registerMenuCommand === 'function') {
       GM_registerMenuCommand('開啟 PTT 名單管理', showManagePanel);
     }
