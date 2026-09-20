@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.1.1
+// @version      1.2.0
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -27,6 +27,7 @@
   const TOKEN_KEY = 'pttTermNameList_ghToken';
   const GISTID_KEY = 'pttTermNameList_gistId';
   const GIST_FILENAME = 'ptt-term-namelist.json';
+  const AUTOLOGIN_KEY = 'pttTermNameList_autoLogin';
 
   const TYPE_META = {
     friend: { label: '好友', color: '#2ecc71' },
@@ -93,6 +94,57 @@
     } catch (e) {
       /* ignore */
     }
+  }
+
+  function getAutoLogin() {
+    try {
+      return GM_getValue(AUTOLOGIN_KEY, true) !== false;
+    } catch (e) {
+      return true;
+    }
+  }
+  function setAutoLogin(v) {
+    try {
+      GM_setValue(AUTOLOGIN_KEY, !!v);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  // ---------- auto-login ----------
+  // Only clicks term.ptt.cc's own "登入" button once the browser's own
+  // password-manager autofill has already populated both fields. Never
+  // reads, stores, or transmits the credential values themselves.
+  function setupAutoLogin() {
+    const attempted = new WeakSet();
+    const tryModal = (modal) => {
+      if (!modal || attempted.has(modal)) return;
+      const userInput = modal.querySelector('#site-login-username');
+      const passInput = modal.querySelector('#site-login-password');
+      const submitBtn = modal.querySelector('.LoginModal__Btn--submit');
+      if (!userInput || !passInput || !submitBtn) return;
+      attempted.add(modal);
+      let tries = 0;
+      const timer = setInterval(() => {
+        tries++;
+        if (!getAutoLogin()) {
+          clearInterval(timer);
+          return;
+        }
+        if (userInput.value && passInput.value) {
+          clearInterval(timer);
+          submitBtn.click();
+        } else if (tries > 15 || !document.body.contains(modal)) {
+          clearInterval(timer);
+        }
+      }, 200);
+    };
+    const observer = new MutationObserver(() => {
+      if (!getAutoLogin()) return;
+      tryModal(document.querySelector('.LoginModal'));
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    tryModal(document.querySelector('.LoginModal'));
   }
 
   function ghRequest(method, url, token, body) {
@@ -251,8 +303,12 @@
     stylesInjected = true;
     const style = document.createElement('style');
     style.textContent = `
-      .pnl-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 999999; display: flex; align-items: center; justify-content: center; font-family: -apple-system, "Microsoft JhengHei", sans-serif; }
-      .pnl-box { background: #1e1e1e; color: #eee; border-radius: 8px; padding: 16px 20px; width: 320px; max-width: 90vw; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+      /* native <dialog>+showModal() renders in the browser's top layer and makes
+         the rest of the page inert, which is the only thing that reliably beats
+         term.ptt.cc's own window-level mouse capture for the terminal grid. */
+      dialog.pnl-dialog { background: #1e1e1e; color: #eee; border: none; border-radius: 8px; padding: 16px 20px; width: 320px; max-width: 90vw; box-shadow: 0 8px 30px rgba(0,0,0,.5); font-family: -apple-system, "Microsoft JhengHei", sans-serif; }
+      dialog.pnl-dialog::backdrop { background: rgba(0,0,0,.5); }
+      dialog.pnl-dialog.pnl-dialog-wide { width: 440px; }
       .pnl-box h3 { margin: 0 0 10px; font-size: 16px; }
       .pnl-row { margin-bottom: 10px; }
       .pnl-row label { display: block; font-size: 12px; color: #aaa; margin-bottom: 4px; }
@@ -275,85 +331,87 @@
       .pnl-cloud input[type=password] { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 4px; border: 1px solid #444; background: #111; color: #eee; margin-bottom: 8px; font-family: monospace; }
       .pnl-cloud-actions { display: flex; gap: 8px; margin-bottom: 6px; }
       .pnl-cloud-status { font-size: 12px; color: #999; }
+      .pnl-toggle-row { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 10px; }
       #pttNameListFab { position: fixed; right: 14px; bottom: 14px; z-index: 999998; background: #2d7ff9cc; color: #fff; border-radius: 20px; padding: 8px 14px; font-size: 13px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.4); font-family: -apple-system, "Microsoft JhengHei", sans-serif; user-select: none; }
       #pttNameListFab:hover { background: #2d7ff9; }
     `;
     document.head.appendChild(style);
   }
 
-  function closeOverlay(overlay) {
-    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  function createDialog(wide) {
+    const dialog = document.createElement('dialog');
+    dialog.className = wide ? 'pnl-dialog pnl-dialog-wide' : 'pnl-dialog';
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) dialog.close();
+    });
+    dialog.addEventListener('close', () => dialog.remove());
+    document.body.appendChild(dialog);
+    return dialog;
   }
 
   function showEntryDialog(id, existing) {
     injectStyles();
-    const overlay = document.createElement('div');
-    overlay.className = 'pnl-overlay';
+    const dialog = createDialog(false);
     const type = existing ? existing.type : 'friend';
     const note = existing ? existing.note : '';
 
-    overlay.innerHTML = `
-      <div class="pnl-box">
-        <h3>${existing ? '編輯名單' : '加入名單'}：${id}</h3>
-        <div class="pnl-row">
-          <label>分類</label>
-          <div class="pnl-types">
-            <label><input type="radio" name="pnlType" value="friend"> 好友</label>
-            <label><input type="radio" name="pnlType" value="block"> 黑名單</label>
-            <label><input type="radio" name="pnlType" value="note"> 其他</label>
-          </div>
-        </div>
-        <div class="pnl-row">
-          <label>備註</label>
-          <input type="text" id="pnlNote" maxlength="60" placeholder="選填">
-        </div>
-        <div class="pnl-actions">
-          ${existing ? '<button class="pnl-btn del" id="pnlDel">刪除</button>' : ''}
-          <button class="pnl-btn cancel" id="pnlCancel">取消</button>
-          <button class="pnl-btn save" id="pnlSave">儲存</button>
+    dialog.innerHTML = `
+      <h3>${existing ? '編輯名單' : '加入名單'}：${id}</h3>
+      <div class="pnl-row">
+        <label>分類</label>
+        <div class="pnl-types">
+          <label><input type="radio" name="pnlType" value="friend"> 好友</label>
+          <label><input type="radio" name="pnlType" value="block"> 黑名單</label>
+          <label><input type="radio" name="pnlType" value="note"> 其他</label>
         </div>
       </div>
+      <div class="pnl-row">
+        <label>備註</label>
+        <input type="text" id="pnlNote" maxlength="60" placeholder="選填">
+      </div>
+      <div class="pnl-actions">
+        ${existing ? '<button class="pnl-btn del" id="pnlDel">刪除</button>' : ''}
+        <button class="pnl-btn cancel" id="pnlCancel">取消</button>
+        <button class="pnl-btn save" id="pnlSave">儲存</button>
+      </div>
     `;
-    document.body.appendChild(overlay);
 
-    overlay.querySelector(`input[value="${type}"]`).checked = true;
-    overlay.querySelector('#pnlNote').value = note;
+    dialog.querySelector(`input[value="${type}"]`).checked = true;
+    dialog.querySelector('#pnlNote').value = note;
 
-    overlay.addEventListener('mousedown', (e) => {
-      if (e.target === overlay) closeOverlay(overlay);
-    });
-    overlay.querySelector('#pnlCancel').addEventListener('click', () => closeOverlay(overlay));
-    overlay.querySelector('#pnlSave').addEventListener('click', () => {
-      const chosen = overlay.querySelector('input[name="pnlType"]:checked');
+    dialog.querySelector('#pnlCancel').addEventListener('click', () => dialog.close());
+    dialog.querySelector('#pnlSave').addEventListener('click', () => {
+      const chosen = dialog.querySelector('input[name="pnlType"]:checked');
       const t = chosen ? chosen.value : 'friend';
-      const n = overlay.querySelector('#pnlNote').value.trim();
+      const n = dialog.querySelector('#pnlNote').value.trim();
       upsertEntry(id, t, n);
-      closeOverlay(overlay);
+      dialog.close();
     });
-    const delBtn = overlay.querySelector('#pnlDel');
+    const delBtn = dialog.querySelector('#pnlDel');
     if (delBtn) {
       delBtn.addEventListener('click', () => {
         if (confirm(`確定要將「${id}」從名單移除？`)) {
           removeEntry(id);
-          closeOverlay(overlay);
+          dialog.close();
         }
       });
     }
+
+    dialog.showModal();
   }
 
   function showManagePanel() {
     injectStyles();
-    const overlay = document.createElement('div');
-    overlay.className = 'pnl-overlay';
-    const box = document.createElement('div');
-    box.className = 'pnl-box';
-    box.style.width = '440px';
+    const dialog = createDialog(true);
 
     function render() {
       const list = loadList();
       const ids = Object.keys(list).sort();
-      box.innerHTML = `
+      dialog.innerHTML = `
         <h3>名單管理 (${ids.length})</h3>
+        <div class="pnl-toggle-row">
+          <label><input type="checkbox" id="pnlAutoLogin" ${getAutoLogin() ? 'checked' : ''}> 自動登入(偵測到瀏覽器已填好帳密就自動送出，不讀取/儲存密碼)</label>
+        </div>
         <div class="pnl-cloud">
           <div class="pnl-cloud-title">☁️ 雲端同步 (GitHub Gist)</div>
           <input type="password" id="pnlToken" placeholder="貼上 GitHub Personal Access Token (需 gist 權限)" value="${getToken().replace(/"/g, '&quot;')}">
@@ -388,14 +446,14 @@
           <button class="pnl-btn cancel" id="pnlManageClose">關閉</button>
         </div>
       `;
-      box.querySelectorAll('.edit-btn').forEach((btn) => {
+      dialog.querySelectorAll('.edit-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
           const id = btn.closest('.pnl-manage-item').dataset.id;
-          closeOverlay(overlay);
+          dialog.close();
           showEntryDialog(id, loadList()[id]);
         });
       });
-      box.querySelectorAll('.del-btn').forEach((btn) => {
+      dialog.querySelectorAll('.del-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
           const id = btn.closest('.pnl-manage-item').dataset.id;
           if (confirm(`確定要將「${id}」從名單移除？`)) {
@@ -404,17 +462,20 @@
           }
         });
       });
-      box.querySelector('#pnlManageClose').addEventListener('click', () => closeOverlay(overlay));
-      box.querySelector('#pnlTokenSave').addEventListener('click', () => {
-        const t = box.querySelector('#pnlToken').value.trim();
+      dialog.querySelector('#pnlManageClose').addEventListener('click', () => dialog.close());
+      dialog.querySelector('#pnlAutoLogin').addEventListener('change', (e) => {
+        setAutoLogin(e.target.checked);
+      });
+      dialog.querySelector('#pnlTokenSave').addEventListener('click', () => {
+        const t = dialog.querySelector('#pnlToken').value.trim();
         setToken(t);
         if (!t) setGistId('');
-        box.querySelector('#pnlCloudStatus').textContent = t
+        dialog.querySelector('#pnlCloudStatus').textContent = t
           ? '已儲存 Token，點「立即同步」拉取/建立雲端名單'
           : '已清除 Token';
       });
-      box.querySelector('#pnlSyncNow').addEventListener('click', async () => {
-        const statusEl = box.querySelector('#pnlCloudStatus');
+      dialog.querySelector('#pnlSyncNow').addEventListener('click', async () => {
+        const statusEl = dialog.querySelector('#pnlCloudStatus');
         if (!getToken()) {
           statusEl.textContent = '請先貼上 Token 並儲存';
           return;
@@ -432,11 +493,7 @@
     }
 
     render();
-    overlay.appendChild(box);
-    overlay.addEventListener('mousedown', (e) => {
-      if (e.target === overlay) closeOverlay(overlay);
-    });
-    document.body.appendChild(overlay);
+    dialog.showModal();
 
     if (getToken()) {
       pullFromCloud()
@@ -529,6 +586,8 @@
       }
     }, 300);
   }
+
+  setupAutoLogin();
 
   waitForApp((app) => {
     registerMenuItems(app);
