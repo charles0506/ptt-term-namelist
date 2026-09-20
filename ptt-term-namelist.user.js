@@ -8,6 +8,8 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @updateURL    https://raw.githubusercontent.com/charles0506/ptt-term-namelist/master/ptt-term-namelist.user.js
+// @downloadURL  https://raw.githubusercontent.com/charles0506/ptt-term-namelist/master/ptt-term-namelist.user.js
 // ==/UserScript==
 
 (function () {
