@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.3.0
+// @version      1.3.1
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -329,7 +329,12 @@
         const entry = list[m[0]];
         if (entry) {
           const meta = TYPE_META[entry.type] || TYPE_META.note;
-          boxes.push({ row, col: m.index, len: m[0].length, color: meta.color });
+          if (entry.type === 'block') {
+            // hide the rest of the line too (author + title), as inconspicuous as possible
+            boxes.push({ row, col: m.index, len: buf.cols - m.index, block: true });
+          } else {
+            boxes.push({ row, col: m.index, len: m[0].length, color: meta.color, block: false });
+          }
         }
       }
     }
@@ -348,8 +353,15 @@
       el.style.top = b.row * chh + 'px';
       el.style.width = b.len * chw + 'px';
       el.style.height = chh + 'px';
-      el.style.borderBottom = `2px solid ${b.color}`;
-      el.style.boxShadow = `inset 0 0 0 1px ${b.color}88`;
+      if (b.block) {
+        el.style.background = 'rgba(8,8,8,0.9)';
+        el.style.borderBottom = 'none';
+        el.style.boxShadow = 'none';
+      } else {
+        el.style.background = 'transparent';
+        el.style.borderBottom = `2px solid ${b.color}`;
+        el.style.boxShadow = `inset 0 0 0 1px ${b.color}88`;
+      }
     });
   }
 
