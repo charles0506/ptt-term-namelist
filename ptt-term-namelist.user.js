@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.4.0
+// @version      1.4.1
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -116,35 +116,43 @@
   // password-manager autofill has already populated both fields. Never
   // reads, stores, or transmits the credential values themselves.
   function setupAutoLogin() {
-    const attempted = new WeakSet();
-    const tryModal = (modal) => {
-      if (!modal || attempted.has(modal)) return;
+    // Keep polling for as long as the modal stays open instead of giving up
+    // after a fixed timeout -- browser autofill can take longer than a couple
+    // seconds to populate, especially right after page load.
+    let watching = null; // { modal, timer }
+    const stopWatch = () => {
+      if (watching) {
+        clearInterval(watching.timer);
+        watching = null;
+      }
+    };
+    const watch = (modal) => {
+      if (watching && watching.modal === modal) return;
+      stopWatch();
       const userInput = modal.querySelector('#site-login-username');
       const passInput = modal.querySelector('#site-login-password');
       const submitBtn = modal.querySelector('.LoginModal__Btn--submit');
       if (!userInput || !passInput || !submitBtn) return;
-      attempted.add(modal);
-      let tries = 0;
       const timer = setInterval(() => {
-        tries++;
-        if (!getAutoLogin()) {
-          clearInterval(timer);
+        if (!getAutoLogin() || !document.body.contains(modal) || modal.open === false) {
+          stopWatch();
           return;
         }
         if (userInput.value && passInput.value) {
-          clearInterval(timer);
+          stopWatch();
           submitBtn.click();
-        } else if (tries > 15 || !document.body.contains(modal)) {
-          clearInterval(timer);
         }
       }, 200);
+      watching = { modal, timer };
     };
     const observer = new MutationObserver(() => {
       if (!getAutoLogin()) return;
-      tryModal(document.querySelector('.LoginModal'));
+      const modal = document.querySelector('.LoginModal');
+      if (modal) watch(modal);
     });
-    observer.observe(document.body, { childList: true, subtree: true });
-    tryModal(document.querySelector('.LoginModal'));
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['open'] });
+    const initial = document.querySelector('.LoginModal');
+    if (initial) watch(initial);
   }
 
   function ghRequest(method, url, token, body) {
