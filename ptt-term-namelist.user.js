@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.4.1
+// @version      1.5.0
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -356,9 +356,13 @@
       el.style.top = b.row * chh + 'px';
       el.style.width = b.len * chw + 'px';
       el.style.height = chh + 'px';
-      el.style.background = 'transparent';
-      el.style.borderBottom = `2px solid ${b.color}`;
-      el.style.boxShadow = `inset 0 0 0 1px ${b.color}88`;
+      // mix-blend-mode:color recolors the bright text glyphs underneath to
+      // this hue while leaving the near-black background alone, so it reads
+      // as the ID's actual text changing color rather than a box on top of it.
+      el.style.background = b.color;
+      el.style.mixBlendMode = 'color';
+      el.style.borderBottom = 'none';
+      el.style.boxShadow = 'none';
     });
   }
 
