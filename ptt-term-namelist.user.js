@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.3.1
+// @version      1.3.2
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -354,7 +354,7 @@
       el.style.width = b.len * chw + 'px';
       el.style.height = chh + 'px';
       if (b.block) {
-        el.style.background = 'rgba(8,8,8,0.9)';
+        el.style.background = 'rgba(45,15,60,0.88)';
         el.style.borderBottom = 'none';
         el.style.boxShadow = 'none';
       } else {
