@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.6.0
+// @version      1.6.1
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -31,7 +31,7 @@
 
   const TYPE_META = {
     friend: { label: '好友', color: '#2ecc71' },
-    block: { label: '黑名單', color: '#4a148c' },
+    block: { label: '黑名單', color: '#1a0033' },
     note: { label: '其他', color: '#f1c40f' },
   };
 
@@ -146,6 +146,14 @@
   // Only clicks term.ptt.cc's own "登入" button once the browser's own
   // password-manager autofill has already populated both fields. Never
   // reads, stores, or transmits the credential values themselves.
+  //
+  // Chrome deliberately withholds an autofilled value from script reads
+  // (input.value comes back "") until the field receives a genuine,
+  // trusted user interaction -- this is an anti-scraping protection, not a
+  // bug here. A script-dispatched focus() is not a trusted gesture and
+  // usually can't unlock it either, but it's a harmless no-op to try, and
+  // it means the user only has to click into the field once (not fill +
+  // click submit) for the rest to happen automatically.
   function setupAutoLogin() {
     // Keep polling for as long as the modal stays open instead of giving up
     // after a fixed timeout -- browser autofill can take longer than a couple
@@ -164,6 +172,11 @@
       const passInput = modal.querySelector('#site-login-password');
       const submitBtn = modal.querySelector('.LoginModal__Btn--submit');
       if (!userInput || !passInput || !submitBtn) return;
+      try {
+        userInput.focus();
+      } catch (e) {
+        /* ignore */
+      }
       const timer = setInterval(() => {
         if (!getAutoLogin() || !document.body.contains(modal) || modal.open === false) {
           stopWatch();
