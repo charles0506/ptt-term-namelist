@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.5.1
+// @version      1.6.0
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -64,6 +64,37 @@
     delete list[id];
     saveList(list);
     schedulePush();
+  }
+
+  // Parses free-form pasted text: one ID per line, or separated by commas/
+  // whitespace/full-width commas. Non-ID tokens are silently skipped.
+  function parseIdsFromText(text) {
+    if (!text) return [];
+    const tokens = text.split(/[\s,，、;]+/);
+    const seen = new Set();
+    const ids = [];
+    for (const t of tokens) {
+      const m = t.match(/^[A-Za-z][A-Za-z0-9_]{1,11}$/);
+      if (m && !seen.has(m[0])) {
+        seen.add(m[0]);
+        ids.push(m[0]);
+      }
+    }
+    return ids;
+  }
+
+  function bulkImport(type, text) {
+    const ids = parseIdsFromText(text);
+    if (ids.length === 0) return 0;
+    const list = loadList();
+    const now = Date.now();
+    for (const id of ids) {
+      const existing = list[id];
+      list[id] = { type, note: existing ? existing.note : '', updatedAt: now };
+    }
+    saveList(list);
+    schedulePush();
+    return ids.length;
   }
 
   // ---------- cloud sync (GitHub Gist) ----------
@@ -412,6 +443,14 @@
       #pttNameListFab { position: fixed; right: 14px; bottom: 14px; z-index: 999998; background: #2d7ff9cc; color: #fff; border-radius: 20px; padding: 8px 14px; font-size: 13px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.4); font-family: -apple-system, "Microsoft JhengHei", sans-serif; user-select: none; }
       #pttNameListFab:hover { background: #2d7ff9; }
       .pnl-highlight { position: absolute; pointer-events: none; box-sizing: border-box; z-index: 3; }
+      .pnl-import { border: 1px solid #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+      .pnl-import-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; }
+      .pnl-import-cols { display: flex; gap: 8px; }
+      .pnl-import-col { flex: 1; display: flex; flex-direction: column; }
+      .pnl-import-col label { font-size: 12px; color: #aaa; margin-bottom: 4px; }
+      .pnl-import-col textarea { width: 100%; box-sizing: border-box; height: 70px; resize: vertical; padding: 6px 8px; border-radius: 4px; border: 1px solid #444; background: #111; color: #eee; font-family: monospace; font-size: 12px; }
+      .pnl-import-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+      .pnl-import-status { font-size: 12px; color: #999; margin-top: 6px; }
     `;
     document.head.appendChild(style);
   }
@@ -499,6 +538,23 @@
           </div>
           <div class="pnl-cloud-status" id="pnlCloudStatus">${getToken() ? (getGistId() ? '已設定，Gist: ' + getGistId() : '已設定 Token，尚未同步過') : '尚未設定，跨裝置需在每台裝置貼上同一組 Token'}</div>
         </div>
+        <div class="pnl-import">
+          <div class="pnl-import-title">📋 批次匯入 (貼上 TXT 內容，一行一個 ID，也接受逗號/空白分隔)</div>
+          <div class="pnl-import-cols">
+            <div class="pnl-import-col">
+              <label>好友 ID</label>
+              <textarea id="pnlImportFriend" placeholder="ID1&#10;ID2&#10;ID3"></textarea>
+            </div>
+            <div class="pnl-import-col">
+              <label>黑名單 ID</label>
+              <textarea id="pnlImportBlock" placeholder="ID1&#10;ID2&#10;ID3"></textarea>
+            </div>
+          </div>
+          <div class="pnl-import-actions">
+            <button class="pnl-btn save" id="pnlImportBtn">匯入</button>
+          </div>
+          <div class="pnl-import-status" id="pnlImportStatus"></div>
+        </div>
         <div class="pnl-manage-list">
           ${
             ids.length === 0
@@ -541,6 +597,14 @@
         });
       });
       dialog.querySelector('#pnlManageClose').addEventListener('click', () => dialog.close());
+      dialog.querySelector('#pnlImportBtn').addEventListener('click', () => {
+        const friendText = dialog.querySelector('#pnlImportFriend').value;
+        const blockText = dialog.querySelector('#pnlImportBlock').value;
+        const nFriend = bulkImport('friend', friendText);
+        const nBlock = bulkImport('block', blockText);
+        dialog.querySelector('#pnlImportStatus').textContent = `已匯入 好友 ${nFriend} 筆、黑名單 ${nBlock} 筆`;
+        render();
+      });
       dialog.querySelector('#pnlAutoLogin').addEventListener('change', (e) => {
         setAutoLogin(e.target.checked);
       });
