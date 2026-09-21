@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.8.0
+// @version      1.9.0
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -95,6 +95,33 @@
     saveList(list);
     schedulePush();
     return ids.length;
+  }
+
+  // Parses PTT's native "特別名單" (namelist) export format: one entry per
+  // line, "ID=W:" / "ID=B2:" / "ID=C:" etc (a letter code, optional
+  // intensity number, trailing colon). W -> friend, B -> block, C -> note.
+  // Plain lines with no "=X:" suffix are left alone (not part of any list).
+  function bulkImportNamelist(text) {
+    if (!text) return { friend: 0, block: 0, note: 0 };
+    const CODE_TO_TYPE = { W: 'friend', B: 'block', C: 'note' };
+    const list = loadList();
+    const now = Date.now();
+    const counts = { friend: 0, block: 0, note: 0 };
+    const lineRe = /^([A-Za-z][A-Za-z0-9_]{1,11})=([WBC])\d*:\s*$/;
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const m = line.match(lineRe);
+      if (!m) continue;
+      const [, id, code] = m;
+      const type = CODE_TO_TYPE[code];
+      const existing = list[id];
+      list[id] = { type, note: existing ? existing.note : '', updatedAt: now };
+      counts[type]++;
+    }
+    saveList(list);
+    schedulePush();
+    return counts;
   }
 
   // ---------- cloud sync (GitHub Gist) ----------
@@ -568,6 +595,14 @@
           </div>
           <div class="pnl-import-status" id="pnlImportStatus"></div>
         </div>
+        <div class="pnl-import">
+          <div class="pnl-import-title">📋 進階匯入 (PTT特別名單格式，一行一個 "ID=W:" / "ID=B2:" / "ID=C:"，W=好友 B=黑名單 C=其他，沒有 "=X:" 的行會被忽略)</div>
+          <textarea id="pnlImportNamelist" style="width:100%;box-sizing:border-box;height:90px;resize:vertical;padding:6px 8px;border-radius:4px;border:1px solid #444;background:#111;color:#eee;font-family:monospace;font-size:12px;" placeholder="ID1=W:&#10;ID2=B1:&#10;ID3 (無標記，忽略)"></textarea>
+          <div class="pnl-import-actions">
+            <button class="pnl-btn save" id="pnlImportNamelistBtn">匯入</button>
+          </div>
+          <div class="pnl-import-status" id="pnlImportNamelistStatus"></div>
+        </div>
         <div class="pnl-manage-list">
           ${
             ids.length === 0
@@ -610,6 +645,13 @@
         });
       });
       dialog.querySelector('#pnlManageClose').addEventListener('click', () => dialog.close());
+      dialog.querySelector('#pnlImportNamelistBtn').addEventListener('click', () => {
+        const text = dialog.querySelector('#pnlImportNamelist').value;
+        const counts = bulkImportNamelist(text);
+        dialog.querySelector('#pnlImportNamelistStatus').textContent =
+          `已匯入 好友 ${counts.friend} 筆、黑名單 ${counts.block} 筆、其他 ${counts.note} 筆`;
+        render();
+      });
       dialog.querySelector('#pnlImportBtn').addEventListener('click', () => {
         const friendText = dialog.querySelector('#pnlImportFriend').value;
         const blockText = dialog.querySelector('#pnlImportBlock').value;
