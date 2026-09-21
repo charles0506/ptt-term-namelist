@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.7.1
+// @version      1.8.0
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -482,7 +482,7 @@
   function showEntryDialog(id, existing) {
     injectStyles();
     const dialog = createDialog(false);
-    const type = existing ? existing.type : 'friend';
+    const type = existing ? existing.type : 'block';
     const note = existing ? existing.note : '';
 
     dialog.innerHTML = `
@@ -512,7 +512,7 @@
     dialog.querySelector('#pnlCancel').addEventListener('click', () => dialog.close());
     dialog.querySelector('#pnlSave').addEventListener('click', () => {
       const chosen = dialog.querySelector('input[name="pnlType"]:checked');
-      const t = chosen ? chosen.value : 'friend';
+      const t = chosen ? chosen.value : 'block';
       const n = dialog.querySelector('#pnlNote').value.trim();
       upsertEntry(id, t, n);
       dialog.close();
@@ -732,14 +732,8 @@
         removeEntry(id);
       },
     });
-
-    app.pluginManager.registerContextMenuItem({
-      id: 'namelist_manage',
-      order: 123,
-      visible: () => true,
-      label: () => '開啟名單管理',
-      onClick: () => showManagePanel(),
-    });
+    // "開啟名單管理" intentionally not in the right-click menu -- use the
+    // floating "名單" button or the Tampermonkey menu command instead.
   }
 
   function waitForApp(cb, timeoutMs) {
