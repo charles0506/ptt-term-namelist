@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PTT term.ptt.cc 名單功能 (好友/黑名單/備註)
 // @namespace    ptt-term-namelist
-// @version      1.6.1
+// @version      1.7.0
 // @description  在 term.ptt.cc 右鍵選單加入「加入名單/編輯名單/取消名單」功能，可標記好友、黑名單、備註，資料存在本機瀏覽器(Tampermonkey storage)，並可選擇透過 GitHub Gist 跨裝置同步
 // @match        https://term.ptt.cc/*
 // @run-at       document-idle
@@ -670,6 +670,20 @@
 
   // ---------- register into term.ptt.cc plugin API ----------
   function registerMenuItems(app) {
+    app.pluginManager.registerContextMenuItem({
+      id: 'namelist_pttweb',
+      order: 119,
+      visible: (appI, f) => {
+        const ctx = computeClickCtx(f);
+        return !!ctx.id;
+      },
+      label: () => (clickCtx.id ? `搜尋所有發文、留言、暱稱「${clickCtx.id}」` : '搜尋所有發文、留言、暱稱'),
+      onClick: (appI, { state }) => {
+        const id = getIdAtPagePos(state.pageX, state.pageY);
+        if (id) window.open(`https://www.pttweb.cc/user/${encodeURIComponent(id)}`, '_blank', 'noopener');
+      },
+    });
+
     app.pluginManager.registerContextMenuItem({
       id: 'namelist_add',
       order: 120,
